@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>4-Tuple Preference App</title>
+  <style>
+    body { font-family: sans-serif; display: flex; height: 100vh; margin: 0; }
+    #left, #right { flex: 1; padding: 2em; }
+    #left { border-right: 2px solid #ccc; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    #tuples { display: flex; gap: 2em; margin-bottom: 2em; }
+    .tuple { font-size: 1.5em; padding: 1em; border: 1px solid #888; border-radius: 8px; }
+    button { font-size: 1em; padding: 0.5em 1em; margin: 0 1em; }
+    #right { display: flex; flex-direction: column; align-items: flex-start; }
+    #regression { margin-top: 2em; }
+
+    /* Responsive styles for mobile */
+    @media (max-width: 700px) {
+      body {
+        flex-direction: column;
+        height: auto;
+      }
+      #left, #right {
+        flex: none;
+        width: 100%;
+        padding: 1em;
+        box-sizing: border-box;
+      }
+      #left {
+        border-right: none;
+        border-bottom: 2px solid #ccc;
+        align-items: stretch;
+      }
+      #tuples {
+        flex-direction: column;
+        gap: 1em;
+        margin-bottom: 1em;
+      }
+      .tuple {
+        font-size: 1.2em;
+        padding: 0.7em;
+      }
+      #right {
+        align-items: stretch;
+      }
+      #regression-formula {
+        font-size: 1.2em !important;
+      }
+      #chart-container {
+        height: 200px !important;
+      }
+      #coefficient-chart {
+        width: 100% !important;
+        height: 200px !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="left">
+    <h2>Left or right?</h2>
+    <div style="display: flex; align-items: center; gap: 2em; margin-bottom: 2em;">
+      <div id="varLabels" style="text-align: right; color: #888;"></div>
+      <div id="tuples" style="display: flex; gap: 2em;">
+        <div class="tuple" id="tupleA" onclick="pick('A')"></div>
+        <div class="tuple" id="tupleB" onclick="pick('B')"></div>
+      </div>
+    </div>
+    <!-- Removed pick buttons -->
+  </div>
+  <div id="right">
+    <h2>Utility Function</h2>
+    <p>What do you value?</p>
+    <div id="regression-formula" style="font-size:2em; margin-top:1em;"></div>
+    <div id="chart-container" style="margin-top: 2em; width: 100%; height: 300px;">
+      <canvas id="coefficient-chart" width="400" height="300"></canvas>
+    </div>
+  </div>
+  <script>
+    // Store user choices as [diff, label] where diff = tupleA - tupleB, label = 1 if A picked, -1 if B picked
+    let data = [];
+
+    const varNames = [
+      'income ($)',
+      'happiness',
+      'spouse attractiveness',
+      'followers'
+    ];
+    const varShort = [
+      'log(income)',
+      'happiness',
+      'spouse',
+      'fame'
+    ];
+    function randomTuple() {
+      // [0, 10] for each variable
+      return Array.from({length: 4}, () => Math.round(Math.random() * 100) / 10);
+    }
+
+    let tupleA, tupleB;
+
+    function showTuples() {
+      tupleA = randomTuple();
+      tupleB = randomTuple();
+      
+      // Convert log values to actual values for display
+      let displayA = tupleA.map((v, i) => {
+        if (i === 0) return Math.round(Math.exp(v) * 10); // log(income) -> income in thousands
+        if (i === 3) return Math.round(Math.exp(v) * 100); // log(followers) -> followers count
+        return v.toFixed(1);
+      });
+      let displayB = tupleB.map((v, i) => {
+        if (i === 0) return Math.round(Math.exp(v) * 10); // log(income) -> income in thousands
+        if (i === 3) return Math.round(Math.exp(v) * 100); // log(followers) -> followers count
+        return v.toFixed(1);
+      });
+      
+      document.getElementById('tupleA').innerHTML = displayA.map((v,i) => `<div>${v}</div>`).join('');
+      document.getElementById('tupleB').innerHTML = displayB.map((v,i) => `<div>${v}</div>`).join('');
+      
+      // Show variable labels on the left
+      document.getElementById('varLabels').innerHTML = varNames.map((n,i) => `<div style='margin: 0.5em 0;'>${n}</div>`).join('');
+    }
+
+    function pick(choice) {
+      // diff = tupleA - tupleB
+      let diff = tupleA.map((v, i) => v - tupleB[i]);
+      let label = (choice === 'A') ? 1 : -1;
+      data.push([diff, label]);
+      updateRegression();
+      showTuples();
+    }
+
+    // Simple least squares regression to fit: label ≈ coef · diff
+    function updateRegression() {
+      if (data.length === 0) {
+        document.getElementById('regression-formula').textContent = 'y = a₁·log(income) + a₂·happiness + a₃·spouse attractiveness + a₄·log(followers)/fame';
+        return;
+      }
+      // X: n x 4, y: n x 1
+      let X = data.map(([diff, _]) => diff);
+      let y = data.map(([_, label]) => label);
+
+      // Compute (X^T X)^{-1} X^T y
+      let XT = [[], [], [], []];
+      for (let i = 0; i < X.length; i++) {
+        for (let j = 0; j < 4; j++) {
+          XT[j][i] = X[i][j];
+        }
+      }
+      let XT_X = Array.from({length: 4}, () => Array(4).fill(0));
+      for (let i = 0; i < 4; i++) {
+        for (let j = 0; j < 4; j++) {
+          for (let k = 0; k < X.length; k++) {
+            XT_X[i][j] += XT[i][k] * X[k][j];
+          }
+        }
+      }
+      let XT_y = Array(4).fill(0);
+      for (let i = 0; i < 4; i++) {
+        for (let k = 0; k < X.length; k++) {
+          XT_y[i] += XT[i][k] * y[k];
+        }
+      }
+      function det4(m) {
+        return (
+          m[0][3]*m[1][2]*m[2][1]*m[3][0] - m[0][2]*m[1][3]*m[2][1]*m[3][0] -
+          m[0][3]*m[1][1]*m[2][2]*m[3][0] + m[0][1]*m[1][3]*m[2][2]*m[3][0] +
+          m[0][2]*m[1][1]*m[2][3]*m[3][0] - m[0][1]*m[1][2]*m[2][3]*m[3][0] -
+          m[0][3]*m[1][2]*m[2][0]*m[3][1] + m[0][2]*m[1][3]*m[2][0]*m[3][1] +
+          m[0][3]*m[1][0]*m[2][2]*m[3][1] - m[0][0]*m[1][3]*m[2][2]*m[3][1] -
+          m[0][2]*m[1][0]*m[2][3]*m[3][1] + m[0][0]*m[1][2]*m[2][3]*m[3][1] +
+          m[0][3]*m[1][1]*m[2][0]*m[3][2] - m[0][1]*m[1][3]*m[2][0]*m[3][2] -
+          m[0][3]*m[1][0]*m[2][1]*m[3][2] + m[0][0]*m[1][3]*m[2][1]*m[3][2] +
+          m[0][1]*m[1][0]*m[2][3]*m[3][2] - m[0][0]*m[1][1]*m[2][3]*m[3][2] -
+          m[0][2]*m[1][1]*m[2][0]*m[3][3] + m[0][1]*m[1][2]*m[2][0]*m[3][3] +
+          m[0][2]*m[1][0]*m[2][1]*m[3][3] - m[0][0]*m[1][2]*m[2][1]*m[3][3] -
+          m[0][1]*m[1][0]*m[2][2]*m[3][3] + m[0][0]*m[1][1]*m[2][2]*m[3][3]
+        );
+      }
+      function replaceCol(m, col, v) {
+        let out = m.map(row => row.slice());
+        for (let i = 0; i < 4; i++) out[i][col] = v[i];
+        return out;
+      }
+      let det = det4(XT_X);
+      let coef = [0,0,0,0];
+      if (Math.abs(det) > 1e-8) {
+        for (let i = 0; i < 4; i++) {
+          coef[i] = det4(replaceCol(XT_X, i, XT_y)) / det;
+        }
+      }
+      // Colorful formula
+      const colors = ["#e74c3c", "#3498db", "#27ae60", "#f1c40f"];
+      let formula = `<span style='color:#333'>y = </span>`;
+      for (let i = 0; i < 4; i++) {
+        if (i > 0) formula += `<span style='color:#333'> + </span>`;
+        formula += `<span style='color:${colors[i]}'>${coef[i].toFixed(3)}</span><span style='color:#333'>·${varShort[i]}</span>`;
+      }
+      document.getElementById('regression-formula').innerHTML = formula;
+      
+      // Draw bar chart
+      drawChart(coef);
+    }
+
+    function drawChart(coefficients) {
+      const canvas = document.getElementById('coefficient-chart');
+      const ctx = canvas.getContext('2d');
+      const width = canvas.width;
+      const height = canvas.height;
+      
+      // Clear canvas
+      ctx.clearRect(0, 0, width, height);
+      
+      const barColor = "#3498db"; // All bars blue
+      const barWidth = 60;
+      const barSpacing = 20;
+      const startX = 50;
+      const maxBarHeight = height - 80;
+      
+      // Find max absolute value for scaling
+      const maxAbs = Math.max(...coefficients.map(Math.abs));
+      const scale = maxAbs > 0 ? maxBarHeight / (2 * maxAbs) : 1;
+      
+      // Draw bars
+      coefficients.forEach((coef, i) => {
+        const x = startX + i * (barWidth + barSpacing);
+        const barHeight = Math.abs(coef) * scale;
+        const y = coef >= 0 ? height/2 - barHeight : height/2;
+        
+        // Draw bar
+        ctx.fillStyle = barColor;
+        ctx.fillRect(x, y, barWidth, barHeight);
+        
+        // Draw value
+        ctx.fillStyle = '#333';
+        ctx.font = '12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(coef.toFixed(3), x + barWidth/2, y + (coef >= 0 ? -5 : barHeight + 15));
+        
+        // Draw variable name
+        ctx.fillText(varShort[i], x + barWidth/2, height - 10);
+      });
+      
+      // Draw zero line
+      ctx.strokeStyle = '#ccc';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(30, height/2);
+      ctx.lineTo(width - 30, height/2);
+      ctx.stroke();
+      
+      // Draw y-axis label
+      ctx.fillStyle = '#666';
+      ctx.font = '14px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.save();
+      ctx.translate(15, height/2);
+      ctx.rotate(-Math.PI/2);
+      ctx.fillText('Coefficient Value', 0, 0);
+      ctx.restore();
+    }
+
+    showTuples();
+  </script>
+</body>
+</html>
